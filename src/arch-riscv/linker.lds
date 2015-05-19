@@ -47,6 +47,7 @@ SECTIONS
         . = . + 16K;
         _lpae_boot_pgd = .;
         . = . + 32;
+        
     }
     _end = .;
 }

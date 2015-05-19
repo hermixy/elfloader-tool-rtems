@@ -1,5 +1,7 @@
 .extern main
 .extern trap_entry
+.global _start
+
 # define LREG lw
 # define SREG sw
 
@@ -23,9 +25,8 @@
   jr s0
 /* 0x200 reset */
   .align 6
-_start:
   la s0, trap_entry
-  la s0, global_start
+  la s0,_start
   jr s0
 
 .section .text
@@ -105,7 +106,7 @@ trap_entry:
 
   eret
 
-global_start:
+_start:
 
   li x1, 0
   li x2, 0

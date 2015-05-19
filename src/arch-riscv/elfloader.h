@@ -16,7 +16,7 @@
 typedef uintptr_t paddr_t;
 typedef uintptr_t vaddr_t;
 
-#define PAGE_BITS  12
+#define PAGE_BITS 12 
 
 #define BIT(x) (1 << (x))
 #define MASK(n) (BIT(n)-1)
