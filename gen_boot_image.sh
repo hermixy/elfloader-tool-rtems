@@ -49,6 +49,10 @@ case "$PLAT" in
         ENTRY_ADDR=0x82008000;
         FORMAT=elf32-littlearm
         ;;
+    "spike")
+        ENTRY_ADDR=0x60000000;
+        FORMAT=elf32-littleriscv;
+        ;;
     "imx31"|"omap3"|"am335x"|"omap4")
         ENTRY_ADDR=0x82000000
         FORMAT=elf32-littlearm
@@ -122,15 +126,15 @@ popd &>/dev/null
 # to the temporary directory.
 #
 pushd "${TEMP_DIR}" >/dev/null
-${TOOLPREFIX}ld -T "${SCRIPT_DIR}/archive.bin.lds" \
-        --oformat ${FORMAT} -r -b binary archive.cpio \
+riscv32-unknown-elf-ld -T "${SCRIPT_DIR}/archive.bin.lds" \
+        --oformat ${FORMAT} -b binary archive.cpio \
         -o "${TEMP_DIR}/archive.o" || fail
 popd >/dev/null
 
 #
 # Link everything together to produce the final ELF image.
 #
-${TOOLPREFIX}ld -T "${SCRIPT_DIR}/linker.lds" \
+riscv32-unknown-elf-ld -T "${SCRIPT_DIR}/linker.lds" \
         --oformat ${FORMAT} \
         "${SCRIPT_DIR}/elfloader.o" "${TEMP_DIR}/archive.o" \
         -Ttext=${ENTRY_ADDR} -o "${OUTPUT_FILE}" \

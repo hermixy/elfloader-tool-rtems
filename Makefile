@@ -34,6 +34,7 @@ ASMFILES += $(patsubst $(SOURCE_DIR)/%,%,$(SOURCE_DIR)/src/arch-$(ARCH)/mmu-v7a-
 endif
 
 INCLUDE_DIRS += $(SOURCE_DIR)/src/arch-arm/plat-$(PLAT)/
+INCLUDE_DIRS += $(SOURCE_DIR)/src/arch-riscv/plat-$(PLAT)/
 
 LIBS = cpio
 
