@@ -37,9 +37,9 @@
 #define VM_MBARE 0
 #define VM_MBB   1
 #define VM_MBBID 2
-#define VM_SV32  4
-#define VM_SV39  5
-#define VM_SV48  6
+#define VM_SV32  8
+#define VM_SV39  9
+#define VM_SV48  10
 
 #define PTE_TYPE_TABLE 0x00
 #define PTE_TYPE_TABLE_GLOBAL 0x02
@@ -112,7 +112,6 @@ map_kernel_window(struct image_info *kernel_info)
     /* mapping of kernelBase (virtual address) to kernel's physBase  */
     /* up to end of virtual address space minus 16M using 16M frames */
     
-    phys = VIRT1_TO_IDX(kernel_info->phys_region_start);
     phys = VIRT1_TO_IDX(kernel_info->phys_region_start);
     idx  = VIRT1_TO_IDX(0x70000000);
 
@@ -369,4 +368,7 @@ void main(void)
     ((init_kernel_t)kernel_info.virt_entry)(user_info.phys_region_start,
                                             user_info.phys_region_end, user_info.phys_virt_offset,
                                             user_info.virt_entry);
+
+  /* We should never get here. */
+    printf("Kernel returned back to the elf-loader.\n");
 }
