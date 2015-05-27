@@ -12,13 +12,10 @@ ENTRY(_start)
 
 SECTIONS
 {
-    .vector 0x100:
-    {
-        *(.vector) 
-    }
 
     .text :
     {
+        *(.vector)
         *(.text.start)
         *(.text)
     }

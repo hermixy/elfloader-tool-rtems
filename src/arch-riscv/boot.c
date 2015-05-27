@@ -113,7 +113,7 @@ map_kernel_window(struct image_info *kernel_info)
     /* up to end of virtual address space minus 16M using 16M frames */
     
     phys = VIRT1_TO_IDX(kernel_info->phys_region_start);
-    idx  = VIRT1_TO_IDX(0x70000000);
+    idx  = VIRT1_TO_IDX(0xF0000000);
 
   for(i = 0; i < idx ; i++)
   {
@@ -306,8 +306,8 @@ void load_images(struct image_info *kernel_info, struct image_info *user_info,
     elf_getMemoryBounds(kernel_elf, 1,
                         &kernel_phys_start, &kernel_phys_end);
 
-    kernel_phys_end = 0x400000 + kernel_phys_end - kernel_phys_start;
-    kernel_phys_start = 0x400000;
+    kernel_phys_end = 0x10000000 + kernel_phys_end - kernel_phys_start;
+    kernel_phys_start = 0x10000000;
     
     next_phys_addr = load_elf("kernel", kernel_elf,
                               (paddr_t)kernel_phys_start, kernel_info);

@@ -107,7 +107,6 @@ trap_entry:
   eret
 
 _start:
-
   li x1, 0
   li x2, 0
   li x3, 0
@@ -148,7 +147,3 @@ _start:
   la s0, main
   jr s0  
 
-__clzsi2:
-  nop
-__ctzsi2:
-  nop

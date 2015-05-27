@@ -50,7 +50,7 @@ case "$PLAT" in
         FORMAT=elf32-littlearm
         ;;
     "spike")
-        ENTRY_ADDR=0x60000000;
+        ENTRY_ADDR=0x10000000;
         FORMAT=elf32-littleriscv;
         ;;
     "imx31"|"omap3"|"am335x"|"omap4")
