@@ -7,9 +7,9 @@
 
 .section .vector, "ax"
 /* 0x100 user-level trap */
-  .align 6
-  la s0, trap_entry
-  jr  s0
+  mrts
+  #la s0, 0xF0000000
+  #jr  s0
 /* 0x140 supervisor level trap */
   .align 6
   #mrts
