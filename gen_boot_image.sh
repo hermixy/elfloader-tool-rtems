@@ -50,7 +50,7 @@ case "$PLAT" in
         FORMAT=elf32-littlearm
         ;;
     "spike")
-        ENTRY_ADDR=0x10000000;
+        ENTRY_ADDR=0x00000100;
         FORMAT=elf32-littleriscv;
         ;;
     "imx31"|"omap3"|"am335x"|"omap4")
@@ -134,7 +134,7 @@ popd >/dev/null
 #
 # Link everything together to produce the final ELF image.
 #
-riscv32-unknown-elf-ld -T "${SCRIPT_DIR}/linker.lds" \
+${TOOLPREFIX}ld -T "${SCRIPT_DIR}/linker.lds" \
         --oformat ${FORMAT} \
         "${SCRIPT_DIR}/elfloader.o" "${TEMP_DIR}/archive.o" \
         -Ttext=${ENTRY_ADDR} -o "${OUTPUT_FILE}" \
