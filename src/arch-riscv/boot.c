@@ -10,6 +10,8 @@
 
 #include <cpio/cpio.h>
 
+#define RISCV64 1
+
 #define MIN(a, b) (((a)<(b))?(a):(b))
 
 /*************************** MMU ************************************/
@@ -71,13 +73,26 @@
 #define PTE_PPN_SHIFT 10
 #define PTE_PPN1_SHIFT 20
 
+#define PTE64_PPN2_SHIFT 28
+#define PTE64_PPN1_SHIFT 19
+#define PTE64_PPN0_SHIFT 10 
+
+#ifndef RISC64
 #define PTES_PER_PT (RISCV_PGSIZE/sizeof(long))
+#else
+#define PTES_PER_PT (RISCV_PGSIZE/8)
+#endif
 
 /* Virtual address to index conforming sv32 PTE format */ 
 #define VIRT1_TO_IDX(addr) ((addr) >> 22)
-#define VIRT0_TO_IDX(addr) (((addr) >> 10) & 0x000003FF)
+#define VIRT0_TO_IDX(addr) (((addr) >> 12)
+
+#define SV39_VIRT_TO_VPN2(addr) ((addr) >> 30)
+#define SV39_VIRT_TO_VPN1(addr) ((addr) >> 21)
+#define SV39_VIRT_TO_VPN0(addr) ((addr) >> 12)
 
 #define PTE_CREATE(PPN, TYPE) (((PPN) << PTE_PPN_SHIFT) | (TYPE) | PTE_V)
+#define PTE64_CREATE(PPN, TYPE) (((PPN) << PTE64_PPN2_SHIFT) | (TYPE) | PTE_V)
 
 #define write_csr(reg, val) \
   asm volatile ("csrw " #reg ", %0" :: "r"(val))
@@ -99,33 +114,50 @@
     asm volatile ("csrrc %0, " #reg ", %1" : "=r"(__tmp) : "r"(bit)); \
   __tmp; })
 
+
+
+#ifndef RISCV64
 uint32_t l1pt[PTES_PER_PT] __attribute__((aligned(1024*1024*4)));
 uint32_t l2pt[PTES_PER_PT] __attribute__((aligned(1024*1024*4)));
-
+#else
+uint64_t l1pt[PTES_PER_PT] __attribute__((aligned(1024*1024*4)));
+uint64_t l2pt[PTES_PER_PT] __attribute__((aligned(1024*1024*4)));
+#endif
 void
 map_kernel_window(struct image_info *kernel_info)
 {
     paddr_t  phys;
     uint32_t idx;
-    uint32_t     i;
-
-    /* mapping of kernelBase (virtual address) to kernel's physBase  */
-    /* up to end of virtual address space minus 16M using 16M frames */
+    uint32_t i;
     
+    #ifdef RISCV64  
+    phys = SV39_VIRT_TO_VPN2(kernel_info->phys_region_start);
+    idx  = SV39_VIRT_TO_VPN2(0x7F80000000UL);
+    #else
     phys = VIRT1_TO_IDX(kernel_info->phys_region_start);
-    idx  = VIRT1_TO_IDX(0xF0000000);
+    idx = VIRT1_TO_IDX(0x80000000);
+    #endif
+  printf("phys = %d \n", phys);
+  printf("idx = %d \n", idx);
 
   for(i = 0; i < idx ; i++)
   {
-    l1pt[i] =  PTE_CREATE(i << PTE_PPN_SHIFT, PTE_TYPE_SRWX);
+    #ifdef RISCV64  
+    l1pt[i] =  PTE64_CREATE(i, PTE_TYPE_SRWX);
+    #else
+    l1pt[i] =  PTE_CREATE(i << 10, PTE_TYPE_SRWX);
+    #endif
      
   }
 
-  /*  4 MB Mega Pages */
-  for(i = 0; idx < 1024 ; idx++, phys++)
+  /*  1 GB Mega Pages */
+  for(i = 0; idx < PTES_PER_PT ; idx++, phys++)
   {
-    l1pt[idx] = PTE_CREATE(phys << PTE_PPN_SHIFT, PTE_TYPE_SRWX);
-    
+    #ifdef RISCV64
+    l1pt[idx] = PTE64_CREATE(phys, PTE_TYPE_SRWX);
+    #else
+    l1pt[idx] = PTE_CREATE(phys << 10, PTE_TYPE_SRWX);
+    #endif
             
   }
 
@@ -138,8 +170,11 @@ map_kernel_window(struct image_info *kernel_info)
   set_csr(mstatus, MSTATUS_PRV1);
   clear_csr(mstatus, MSTATUS_VM);
 
+#ifndef RISCV64
   set_csr(mstatus, (long)VM_SV32 << __builtin_ctzl(MSTATUS_VM));
-
+#else
+  set_csr(mstatus, (long)VM_SV39 << __builtin_ctzl(MSTATUS_VM));
+#endif
   /* Set to supervisor mode */
   clear_csr(mstatus, (long) PRV_H << __builtin_ctzl(MSTATUS_PRV));
 
@@ -248,6 +283,7 @@ static paddr_t load_elf(const char *name, void *elf,
     /* Print diagnostics. */
     printf("ELF-loading image '%s'\n", name);
     printf("  paddr=[%x..%x]\n", dest_paddr, dest_paddr + image_size - 1);
+    printf("vaddr = 0x%x\n", (uint32_t) min_vaddr);
     printf("  vaddr=[%x..%x]\n", (uint32_t)min_vaddr, (uint32_t)max_vaddr - 1);
     printf("  virt_entry=%x\n", (uint32_t)elf_getEntryPoint(elf));
 
@@ -275,6 +311,7 @@ static paddr_t load_elf(const char *name, void *elf,
     info->virt_region_start = (vaddr_t)min_vaddr;
     info->virt_region_end = (vaddr_t)max_vaddr;
     info->virt_entry = (vaddr_t)elf_getEntryPoint(elf);
+    printf("info->virt_entry = 0x%x\n", info->virt_entry);
     info->phys_virt_offset = (uint32_t)dest_paddr - (uint32_t)min_vaddr;
 
     /* Return address of next free physical frame. */
@@ -306,8 +343,8 @@ void load_images(struct image_info *kernel_info, struct image_info *user_info,
     elf_getMemoryBounds(kernel_elf, 1,
                         &kernel_phys_start, &kernel_phys_end);
 
-    kernel_phys_end = 0x10000000 + kernel_phys_end - kernel_phys_start;
-    kernel_phys_start = 0x10000000;
+    kernel_phys_end = 0x40000000 + kernel_phys_end - kernel_phys_start;
+    kernel_phys_start = 0x40000000;
     
     next_phys_addr = load_elf("kernel", kernel_elf,
                               (paddr_t)kernel_phys_start, kernel_info);
@@ -365,6 +402,7 @@ void main(void)
     map_kernel_window(&kernel_info);
 
     printf("Jumping to kernel-image entry point...\n\n");
+    printf("Kernel entry point is 0x%x\n", (uint32_t) kernel_info.virt_entry);
     ((init_kernel_t)kernel_info.virt_entry)(user_info.phys_region_start,
                                             user_info.phys_region_end, user_info.phys_virt_offset,
                                             user_info.virt_entry);
