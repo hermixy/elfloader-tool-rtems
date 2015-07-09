@@ -32,6 +32,8 @@
 .section .text
 
 trap_entry:
+  la   t1, 0xE0000000
+  sub  sp, sp, t1
   addi sp, sp, -272
   SREG x1, 8(sp)
   SREG x2, 16(sp)
@@ -102,6 +104,9 @@ trap_entry:
   LREG x29, 232(sp)
   LREG x30, 240(sp)
   LREG x31, 248(sp)
+
+  la   t1, 0xE0000000
+  add  sp, sp, t1
   addi sp, sp, 272
 
   eret

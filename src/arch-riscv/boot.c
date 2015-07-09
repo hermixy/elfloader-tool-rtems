@@ -10,7 +10,7 @@
 
 #include <cpio/cpio.h>
 
-#define RISCV64 1
+//#define RISCV64 1
 
 #define MIN(a, b) (((a)<(b))?(a):(b))
 
@@ -132,10 +132,10 @@ map_kernel_window(struct image_info *kernel_info)
     
     #ifdef RISCV64  
     phys = SV39_VIRT_TO_VPN2(kernel_info->phys_region_start);
-    idx  = SV39_VIRT_TO_VPN2(0x7F80000000UL);
+    idx  = SV39_VIRT_TO_VPN2(0x7FF0000000UL);
     #else
     phys = VIRT1_TO_IDX(kernel_info->phys_region_start);
-    idx = VIRT1_TO_IDX(0x80000000);
+    idx = VIRT1_TO_IDX(0xF0000000);
     #endif
   printf("phys = %d \n", phys);
   printf("idx = %d \n", idx);
@@ -343,8 +343,8 @@ void load_images(struct image_info *kernel_info, struct image_info *user_info,
     elf_getMemoryBounds(kernel_elf, 1,
                         &kernel_phys_start, &kernel_phys_end);
 
-    kernel_phys_end = 0x40000000 + kernel_phys_end - kernel_phys_start;
-    kernel_phys_start = 0x40000000;
+    kernel_phys_end = 0x10000000 + kernel_phys_end - kernel_phys_start;
+    kernel_phys_start = 0x10000000;
     
     next_phys_addr = load_elf("kernel", kernel_elf,
                               (paddr_t)kernel_phys_start, kernel_info);
