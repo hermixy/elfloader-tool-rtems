@@ -92,9 +92,9 @@
 #define SV39_VIRT_TO_VPN0(addr) ((addr) >> 12)
 
 #define PTE_CREATE(PPN, TYPE) (((PPN) << PTE_PPN_SHIFT) | (TYPE) | PTE_V)
-#define PTE64_CREATE(PPN, TYPE) ((PPN) | (TYPE) | PTE_V)
+#define PTE64_CREATE(PPN, TYPE) (uint64_t) (((uint32_t)PPN) | (TYPE) | PTE_V)
 #define PTE64_PT_CREATE(PT_BASE) \
-  ((((uint32_t)PT_BASE) / RISCV_PGSIZE) << 10 | PTE_TYPE_TABLE | PTE_V)
+  (((uint32_t)(PT_BASE) / RISCV_PGSIZE) << 10 | PTE_TYPE_TABLE | PTE_V)
 
 #define write_csr(reg, val) \
   asm volatile ("csrw " #reg ", %0" :: "r"(val))
@@ -122,26 +122,28 @@
 uint32_t l1pt[PTES_PER_PT] __attribute__((aligned(1024*1024*4)));
 uint32_t l2pt[PTES_PER_PT] __attribute__((aligned(1024*1024*4)));
 #else
-uint64_t l1pt[PTES_PER_PT] __attribute__((aligned(1024*1024*4)));
-uint64_t l2pt_elfloader[PTES_PER_PT] __attribute__((aligned(1024*1024*4)));
-uint64_t l2pt_kernel[PTES_PER_PT] __attribute__((aligned(1024*1024*4)));
+uint64_t l1pt[PTES_PER_PT] __attribute__((aligned(1024*4)));
+uint64_t l2pt_elfloader[PTES_PER_PT] __attribute__((aligned(1024*4)));
+uint64_t l2pt_kernel[PTES_PER_PT] __attribute__((aligned(1024*4)));
 #endif
 void
 map_kernel_window(struct image_info *kernel_info)
 {
-    paddr_t  phys;
-    uint32_t idx;
-    uint32_t i;
     
-    #ifdef RISCV64  
-    phys = SV39_VIRT_TO_VPN2(kernel_info->phys_region_start);
-    idx  = SV39_VIRT_TO_VPN2(0x7FF0000000UL);
+    
+    uint32_t i;
+    paddr_t  phys;
+    #ifdef RISCV64
+    phys = SV39_VIRT_TO_VPN1(kernel_info->phys_region_start) & 0x1FF;
     #else
+    uint32_t idx; 
     phys = VIRT1_TO_IDX(kernel_info->phys_region_start);
     idx = VIRT1_TO_IDX(0xF0000000);
     #endif
-  printf("phys = %d \n", phys);
-  printf("idx = %d \n", idx);
+    printf("phys = %d \n", phys);
+    //printf("kernel_info = 0x%x\n", *kernel_info);
+
+  //printf("idx = %d \n", idx);
 
 /* This is a hack to run 32-bit code on SV39/RV64 machine. It maps the first 16
  * MiB for elfloader (1:1) mapping, and 256 MiB for kernel at 0xF0000000 at 
@@ -151,17 +153,17 @@ map_kernel_window(struct image_info *kernel_info)
   /* Only 4 GiB need to be mapped, the first (first-level) PTE would refer to 
    * a second level page table to 1:1 map the elfloader (16Mib)
    */ 
-   l1pt[0] =  PTE64_PT_CREATE(&l2pt_elfloader);
-
+   l1pt[0] =  PTE64_PT_CREATE((uint32_t)(&l2pt_elfloader));
+  
    for(i = 0; i < 8; i++)
-     l2pt_elfloader[i] = PTE64_CREATE(i << PTE64_PPN1_SHIFT, PTE_TYPE_SRWX);
-
+     l2pt_elfloader[i] = PTE64_CREATE((uint32_t)(i << PTE64_PPN1_SHIFT), PTE_TYPE_SRWX);
+  
    /* 256 MiB kernel mapping (128 PTE * 2MiB per entry) */
-   l1pt[3] =  PTE64_PT_CREATE(&l2pt_kernel);
-   for(i = 0; i < 128; i++)
+   l1pt[0x1FF] =  PTE64_PT_CREATE(&l2pt_kernel);
+   for(i = 0; i < 128; i++, phys++)
      /* The first two bits are always 0b11 since the MSB is 0xF */
-     l2pt_kernel[i] = PTE64_CREATE((0x180 | i) << PTE64_PPN1_SHIFT, PTE_TYPE_SRWX);
-
+     l2pt_kernel[0x180 | i] = PTE64_CREATE(phys << PTE64_PPN1_SHIFT, PTE_TYPE_SRWX);
+  
 #else
   for(i = 0; i < idx ; i++)
   {
@@ -174,15 +176,13 @@ map_kernel_window(struct image_info *kernel_info)
     l1pt[idx] = PTE_CREATE(phys << 10, PTE_TYPE_SRWX);            
   }
 #endif
-  //l1pt[VIRT1_TO_IDX(kernelBase) + 1] = PTE_CREATE(1 << PTE_PPN_SHIFT, PTE_TYPE_SRWX);
-  //map_kernel_frame(&test_area, &test_area, PTE_TYPE_SRWX);
 
   write_csr(sptbr, l1pt);
 
   set_csr(mstatus, MSTATUS_IE1);
   set_csr(mstatus, MSTATUS_PRV1);
   clear_csr(mstatus, MSTATUS_VM);
-
+  
 #ifndef RISCV64
   set_csr(mstatus, (long)VM_SV32 << __builtin_ctzl(MSTATUS_VM));
 #else
@@ -190,7 +190,6 @@ map_kernel_window(struct image_info *kernel_info)
 #endif
   /* Set to supervisor mode */
   clear_csr(mstatus, (long) PRV_H << __builtin_ctzl(MSTATUS_PRV));
-
 }
 
 /**********************************MMU ******************************************/
@@ -412,10 +411,12 @@ void main(void)
         abort();
     }
 
+    printf("1: Kernel entry point is 0x%x\n", kernel_info.virt_entry);
     map_kernel_window(&kernel_info);
 
     printf("Jumping to kernel-image entry point...\n\n");
-    printf("Kernel entry point is 0x%x\n", (uint32_t) kernel_info.virt_entry);
+    /* Uncomment the following line to get a weird behavior! */
+    //printf("2: Kernel entry point is 0x%x\n", kernel_info.virt_entry);
     ((init_kernel_t)kernel_info.virt_entry)(user_info.phys_region_start,
                                             user_info.phys_region_end, user_info.phys_virt_offset,
                                             user_info.virt_entry);
