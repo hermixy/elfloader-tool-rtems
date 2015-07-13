@@ -10,7 +10,7 @@
 
 #include <cpio/cpio.h>
 
-//#define RISCV64 1
+#define RISCV64 1
 
 #define MIN(a, b) (((a)<(b))?(a):(b))
 
@@ -92,7 +92,9 @@
 #define SV39_VIRT_TO_VPN0(addr) ((addr) >> 12)
 
 #define PTE_CREATE(PPN, TYPE) (((PPN) << PTE_PPN_SHIFT) | (TYPE) | PTE_V)
-#define PTE64_CREATE(PPN, TYPE) (((PPN) << PTE64_PPN2_SHIFT) | (TYPE) | PTE_V)
+#define PTE64_CREATE(PPN, TYPE) ((PPN) | (TYPE) | PTE_V)
+#define PTE64_PT_CREATE(PT_BASE) \
+  ((((uint32_t)PT_BASE) / RISCV_PGSIZE) << 10 | PTE_TYPE_TABLE | PTE_V)
 
 #define write_csr(reg, val) \
   asm volatile ("csrw " #reg ", %0" :: "r"(val))
@@ -121,7 +123,8 @@ uint32_t l1pt[PTES_PER_PT] __attribute__((aligned(1024*1024*4)));
 uint32_t l2pt[PTES_PER_PT] __attribute__((aligned(1024*1024*4)));
 #else
 uint64_t l1pt[PTES_PER_PT] __attribute__((aligned(1024*1024*4)));
-uint64_t l2pt[PTES_PER_PT] __attribute__((aligned(1024*1024*4)));
+uint64_t l2pt_elfloader[PTES_PER_PT] __attribute__((aligned(1024*1024*4)));
+uint64_t l2pt_kernel[PTES_PER_PT] __attribute__((aligned(1024*1024*4)));
 #endif
 void
 map_kernel_window(struct image_info *kernel_info)
@@ -140,27 +143,37 @@ map_kernel_window(struct image_info *kernel_info)
   printf("phys = %d \n", phys);
   printf("idx = %d \n", idx);
 
+/* This is a hack to run 32-bit code on SV39/RV64 machine. It maps the first 16
+ * MiB for elfloader (1:1) mapping, and 256 MiB for kernel at 0xF0000000 at 
+ * 2 MiB granularity.
+ */
+#ifdef RISCV64
+  /* Only 4 GiB need to be mapped, the first (first-level) PTE would refer to 
+   * a second level page table to 1:1 map the elfloader (16Mib)
+   */ 
+   l1pt[0] =  PTE64_PT_CREATE(&l2pt_elfloader);
+
+   for(i = 0; i < 8; i++)
+     l2pt_elfloader[i] = PTE64_CREATE(i << PTE64_PPN1_SHIFT, PTE_TYPE_SRWX);
+
+   /* 256 MiB kernel mapping (128 PTE * 2MiB per entry) */
+   l1pt[3] =  PTE64_PT_CREATE(&l2pt_kernel);
+   for(i = 0; i < 128; i++)
+     /* The first two bits are always 0b11 since the MSB is 0xF */
+     l2pt_kernel[i] = PTE64_CREATE((0x180 | i) << PTE64_PPN1_SHIFT, PTE_TYPE_SRWX);
+
+#else
   for(i = 0; i < idx ; i++)
   {
-    #ifdef RISCV64  
-    l1pt[i] =  PTE64_CREATE(i, PTE_TYPE_SRWX);
-    #else
     l1pt[i] =  PTE_CREATE(i << 10, PTE_TYPE_SRWX);
-    #endif
-     
   }
 
-  /*  1 GB Mega Pages */
+  /*  4 MiB Mega Pages */
   for(i = 0; idx < PTES_PER_PT ; idx++, phys++)
   {
-    #ifdef RISCV64
-    l1pt[idx] = PTE64_CREATE(phys, PTE_TYPE_SRWX);
-    #else
-    l1pt[idx] = PTE_CREATE(phys << 10, PTE_TYPE_SRWX);
-    #endif
-            
+    l1pt[idx] = PTE_CREATE(phys << 10, PTE_TYPE_SRWX);            
   }
-
+#endif
   //l1pt[VIRT1_TO_IDX(kernelBase) + 1] = PTE_CREATE(1 << PTE_PPN_SHIFT, PTE_TYPE_SRWX);
   //map_kernel_frame(&test_area, &test_area, PTE_TYPE_SRWX);
 
