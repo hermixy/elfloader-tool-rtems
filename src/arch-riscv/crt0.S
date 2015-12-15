@@ -147,8 +147,25 @@ _start:
   #li t0, 0x00000004; csrc mstatus, t0 # run in supervisor mode
   #li t0, MSTATUS_IE; csrs mstatus, t0 # enable interrupts
 
-  la sp, (_bootstack_top)
+  csrr t0, mhartid
 
+  beqz t0, boot_seL4
+
+  la s0, boot_secondary_processor
+  mv a0, t0
+
+  xori t1, t0, 1
+  bne t1, x0, boot_node2
+  la sp, _bootstack1_top
+  jr s0
+
+boot_node2:
+  la sp, _bootstack2_top
+  jr s0
+  
+
+boot_seL4:
+  la sp, (_bootstack_top)
   la s0, main
   jr s0  
 

@@ -123,6 +123,9 @@ uint64_t l1pt[PTES_PER_PT] __attribute__((aligned(4096)));
 uint64_t l2pt_elfloader[PTES_PER_PT] __attribute__((aligned(4096)));
 uint64_t l2pt_kernel[PTES_PER_PT] __attribute__((aligned(4096)));
 #endif
+
+void *kernel_elf_cpio;
+
 void
 map_kernel_window(struct image_info *kernel_info)
 {
@@ -234,7 +237,7 @@ static void unpack_elf_to_paddr(void *elf, paddr_t dest_paddr)
     elf_getMemoryBounds(elf, 0, &min_vaddr, &max_vaddr);
     image_size = (uint32_t)(max_vaddr - min_vaddr);
     phys_virt_offset = (uint32_t)dest_paddr - (uint32_t)min_vaddr;
-
+    printf("image_size = 0x%x\n", image_size);
     /* Zero out all memory in the region, as the ELF file may be sparse. */
     memset((char *)dest_paddr, 0, image_size);
 
@@ -272,6 +275,9 @@ static paddr_t load_elf(const char *name, void *elf,
 
     /* Fetch image info. */
     elf_getMemoryBounds(elf, 0, &min_vaddr, &max_vaddr);
+
+    printf("min_vaddr = 0x%x\nmax_vaddr = 0x%x\n", min_vaddr, max_vaddr);
+
     max_vaddr = ROUND_UP(max_vaddr, PAGE_BITS);
     image_size = (uint32_t)(max_vaddr - min_vaddr);
 
@@ -328,7 +334,7 @@ static paddr_t load_elf(const char *name, void *elf,
 }
 
 typedef void (*init_kernel_t)(paddr_t ui_p_reg_start,
-                              paddr_t ui_p_reg_end, int32_t pv_offset, vaddr_t v_entry);
+                              paddr_t ui_p_reg_end, int32_t pv_offset, vaddr_t v_entry, void *kernel_elf_cpio);
 
 void load_images(struct image_info *kernel_info, struct image_info *user_info,
                  int max_user_images, int *num_images)
@@ -349,6 +355,9 @@ void load_images(struct image_info *kernel_info, struct image_info *user_info,
         printf("Kernel image not a valid ELF file!\n");
         abort();
     }
+
+    kernel_elf_cpio = kernel_elf;
+
     elf_getMemoryBounds(kernel_elf, 1,
                         &kernel_phys_start, &kernel_phys_end);
 
@@ -388,13 +397,105 @@ void load_images(struct image_info *kernel_info, struct image_info *user_info,
 static struct image_info kernel_info;
 static struct image_info user_info;
 
+void boot_secondary_processor(uint32_t node)
+{
+    //*((uint32_t *) 0xf0000000) = 0;
+
+    struct image_info kernel_info;
+
+    uint32_t i;
+    uint64_t kernel_phys_start, kernel_phys_end;
+    paddr_t next_phys_addr;
+    const char *elf_filename;
+    unsigned long unused;
+    uint32_t page_dir_adr = 0;
+    uint32_t kernel_phys_addr = 0;
+    paddr_t  phys;
+    //volatile uint32_t poll_start_sec;
+    *((uint32_t *) 0xf0000000) = 0;
+
+    while(!*((uint32_t *) 0xf0000000));
+
+    printf("Secondary Processor #%d, booting \n", node);
+    /* Load kernel. */
+    void *kernel_elf = cpio_get_file(_archive_start, (node == 1)? "hello.exe" : "hello1.exe", &unused);
+    if (kernel_elf == NULL) {
+        printf("No kernel image present in archive!\n");
+        abort();
+    }
+    if (elf_checkFile(kernel_elf)) {
+        printf("Kernel image not a valid ELF file!\n");
+        abort();
+    }
+
+  page_dir_adr = (node == 1)? *((uint32_t *) 0xf0000004) : *((uint32_t *) 0xf0000010);
+  kernel_phys_addr = (node == 1)? *((uint32_t *) 0xf0000008) : *((uint32_t *) 0xf0000014);
+  printf("secondary processor with pd = 0x%x\n", page_dir_adr);
+  printf("secondary processor kernel phys = 0x%x\n", kernel_phys_addr);
+  
+  elf_getMemoryBounds(kernel_elf, 1,
+                        &kernel_phys_start, &kernel_phys_end);
+
+    kernel_phys_end = kernel_phys_addr + kernel_phys_end - kernel_phys_start;
+    kernel_phys_start = kernel_phys_addr;
+
+  next_phys_addr = load_elf("RTEMS", kernel_elf,
+                              (paddr_t)kernel_phys_start, &kernel_info);
+  /*
+     * Load userspace images.
+     *
+     * We assume (and check) that the kernel is the first file in the archive,
+     * and then load the (n+1)'th file in the archive onto the (n)'th CPU.
+     */
+    (void)cpio_get_entry(_archive_start, (node == 1)? 2 : 3, &elf_filename, &unused);
+    if (strcmp(elf_filename, (node == 1)? "hello.exe" : "hello1.exe") != 0) {
+        printf("Kernel image not first image in archive.\n");
+        abort();
+    }
+  printf("secondary processor next_phys_addr = 0x%x\n", next_phys_addr);
+
+    uint32_t idx; 
+    phys = VIRT1_TO_IDX(kernel_info.phys_region_start);
+    idx = VIRT1_TO_IDX(0x01000000);
+    printf("phys = %d \n", phys);
+
+  for(i = 0; i < idx ; i++)
+  {
+    
+    *(((uint32_t *) page_dir_adr) + i) =  PTE_CREATE(i << 10, PTE_TYPE_SRWX);
+  }
+
+    write_csr(sptbr, page_dir_adr);
+
+  set_csr(mstatus, MSTATUS_IE1);
+  set_csr(mstatus, MSTATUS_PRV1);
+  clear_csr(mstatus, MSTATUS_VM);
+  
+#ifndef CONFIG_ROCKET_CHIP
+  set_csr(mstatus, (long)VM_SV32 << __builtin_ctzl(MSTATUS_VM));
+#else
+  set_csr(mstatus, (long)VM_SV39 << __builtin_ctzl(MSTATUS_VM));
+#endif
+  /* Set to supervisor mode */
+  clear_csr(mstatus, (long) PRV_H << __builtin_ctzl(MSTATUS_PRV));
+
+  printf("Kernel loaded! \n");
+
+  printf("Jumping to kernel from secondary processor \n");
+  ((init_kernel_t)kernel_info.virt_entry)(0,
+                                            0, 0,
+                                            0, 0);
+
+  while(1);
+}
+register uint32_t cpu_id asm("tp");
+
 void main(void)
 {
 
 
     int num_apps = 0;
-
-      /* Print welcome message. */
+		
     printf("\nELF-loader started on ");
 
     platform_init();
@@ -408,7 +509,10 @@ void main(void)
         abort();
     }
 
+    printf("elfloader: kernel_elf = 0x%x\n", kernel_elf_cpio);
+ 
     printf("1: Kernel entry point is 0x%x\n", kernel_info.virt_entry);
+    printf("elfloader: user_info.phys_virt_offset = 0x%x\n", user_info.phys_virt_offset);
     map_kernel_window(&kernel_info);
 
     printf("Jumping to kernel-image entry point...\n\n");
@@ -416,7 +520,7 @@ void main(void)
     //printf("2: Kernel entry point is 0x%x\n", kernel_info.virt_entry);
     ((init_kernel_t)kernel_info.virt_entry)(user_info.phys_region_start,
                                             user_info.phys_region_end, user_info.phys_virt_offset,
-                                            user_info.virt_entry);
+                                            user_info.virt_entry, (void *) kernel_elf_cpio);
 
   /* We should never get here. */
     printf("Kernel returned back to the elf-loader.\n");

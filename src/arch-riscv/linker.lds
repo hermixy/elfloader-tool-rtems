@@ -38,13 +38,15 @@ SECTIONS
         . = . + 4K;
         . = ALIGN(16K);
         _bootstack_top = .;
+				_bootstack1_bottom = .;
+				. = . + 4K;
+				. = ALIGN(16K);
+				_bootstack1_top = .;
+				_bootstack2_bottom = .;
+				. = . + 4K;
+				. = ALIGN(16K);
+				_bootstack2_top = .;
         _boot_pd = .;
-        . = . + 16K;
-        _lpae_boot_pmd = .;
-        . = . + 16K;
-        _lpae_boot_pgd = .;
-        . = . + 32;
-        
     }
     _end = .;
 }

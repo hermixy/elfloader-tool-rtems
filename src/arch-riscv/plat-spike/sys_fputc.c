@@ -23,7 +23,6 @@
 #define write_csr(reg, val) \
   asm volatile ("csrw " #reg ", %0" :: "r"(val))
 
-volatile uint64_t magic_mem[8] __attribute__((aligned(64)));
 
 static long syscall(long num, long arg0, long arg1, long arg2)
 {
@@ -37,6 +36,7 @@ static long syscall(long num, long arg0, long arg1, long arg2)
 
 static long handle_frontend_syscall(long which, long arg0, long arg1, long arg2)
 {
+  volatile uint64_t magic_mem[8] __attribute__((aligned(64)));
   magic_mem[0] = which;
   magic_mem[1] = arg0;
   magic_mem[2] = arg1;
