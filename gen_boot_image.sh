@@ -106,10 +106,11 @@ fail() {
 mkdir -p "${TEMP_DIR}/cpio"
 cp -f ${KERNEL_IMAGE} ${TEMP_DIR}/cpio/kernel.elf
 cp -f ${USER_IMAGE} ${TEMP_DIR}/cpio
+cp -f ${RTEMS_IMAGE} ${TEMP_DIR}/cpio
 ${TOOLPREFIX}strip --strip-all ${TEMP_DIR}/cpio/*
 
 pushd "${TEMP_DIR}/cpio" &>/dev/null
-printf "kernel.elf\n$(basename ${USER_IMAGE})\n" | cpio --quiet -o -H newc > ${TEMP_DIR}/archive.cpio
+printf "kernel.elf\n$(basename ${USER_IMAGE})\n${RTEMS_IMG_NAME}\n" | cpio --quiet -o -H newc > ${TEMP_DIR}/archive.cpio
 
 # Strip CPIO metadata if possible.
 which cpio-strip > /dev/null
